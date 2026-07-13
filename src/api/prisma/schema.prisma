@@ -1,0 +1,77 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String    @id @default(cuid())
+  username        String    @unique
+  email           String?   @unique
+  password        String
+  role            String    @default("user")
+  resetToken      String?
+  resetTokenExpiry DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([role])
+  @@index([resetToken])
+}
+
+model Paciente {
+  id              String    @id @default(cuid())
+  nome            String
+  email           String
+  telefone        String?
+  cpf             String?   @unique
+  endereco        String?
+  dataNascimento  DateTime?
+  consultas       Consulta[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([nome])
+  @@index([email])
+}
+
+model Doutor {
+  id            String    @id @default(cuid())
+  nome          String
+  email         String
+  telefone      String?
+  cpf           String?   @unique
+  crm           String?   @unique
+  especialidade String?
+  consultas     Consulta[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([nome])
+  @@index([especialidade])
+}
+
+model Consulta {
+  id          String   @id @default(cuid())
+  pacienteId  String
+  doutorId    String
+  data        DateTime
+  horario     String
+  status      String   @default("agendada")
+  descricao   String?
+  valor       Float?
+  paciente    Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+  doutor      Doutor   @relation(fields: [doutorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([pacienteId])
+  @@index([doutorId])
+  @@index([data])
+  @@index([status])
+  @@index([data, status])
+  @@index([pacienteId, data])
+}
