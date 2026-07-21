@@ -13,13 +13,14 @@ interface Consulta {
   status: string;
   descricao?: string;
   valor?: number;
-  paciente: { id: string; nome: string; email: string };
-  doutor: { id: string; nome: string; especialidade?: string };
+  paciente: { id: string; nome: string; email: string; cpf?: string };
+  doutor: { id: string; nome: string; codigoConselho?: string; especialidade?: { id: string; nome: string } | null };
   createdAt: string;
 }
 
 interface Paciente { id: string; nome: string; }
-interface Doutor { id: string; nome: string; }
+interface Doutor { id: string; nome: string; especialidade?: { id: string; nome: string } | null; }
+interface Especialidade { id: string; nome: string; }
 
 const API_BASE = "/api";
 const itensPorPagina = 5;
@@ -33,7 +34,7 @@ const statusColors: Record<string, string> = {
 
 const statusLabels: Record<string, string> = {
   agendada: "Agendada",
-  concluida: "Concluída",
+  concluida: "Concluida",
   cancelada: "Cancelada",
   em_andamento: "Em Andamento",
 };
@@ -51,6 +52,8 @@ export default function ConsultasPage() {
   const [consultas, setConsultas] = useState<Consulta[]>([]);
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [doutores, setDoutores] = useState<Doutor[]>([]);
+  const [especialidades, setEspecialidades] = useState<Especialidade[]>([]);
+  const [filterEspecialidade, setFilterEspecialidade] = useState("");
   const [pagina, setPagina] = useState(1);
   const [busca, setBusca] = useState("");
   const [loading, setLoading] = useState(true);
@@ -67,15 +70,17 @@ export default function ConsultasPage() {
     setErro(null);
     try {
       const headers = getAuthHeaders();
-      const [cRes, pRes, dRes] = await Promise.all([
+      const [cRes, pRes, dRes, eRes] = await Promise.all([
         fetch(`${API_BASE}/consultas`, { headers }),
         fetch(`${API_BASE}/pacientes`, { headers }),
         fetch(`${API_BASE}/doutores`, { headers }),
+        fetch(`${API_BASE}/especialidades`, { headers }),
       ]);
-      const [cData, pData, dData] = await Promise.all([cRes.json(), pRes.json(), dRes.json()]);
+      const [cData, pData, dData, eData] = await Promise.all([cRes.json(), pRes.json(), dRes.json(), eRes.json()]);
       if (cData.success) setConsultas(cData.data);
       if (pData.success) setPacientes(pData.data);
       if (dData.success) setDoutores(dData.data);
+      if (eData.success) setEspecialidades(eData.data);
     } catch {
       setErro("Erro ao conectar com o servidor");
     } finally {
@@ -85,10 +90,14 @@ export default function ConsultasPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const filtrados = consultas.filter((c) =>
-    c.paciente.nome.toLowerCase().includes(busca.toLowerCase()) ||
-    c.doutor.nome.toLowerCase().includes(busca.toLowerCase())
-  );
+  const filtrados = consultas.filter((c) => {
+    const matchBusca = !busca ||
+      c.paciente.nome.toLowerCase().includes(busca.toLowerCase()) ||
+      c.doutor.nome.toLowerCase().includes(busca.toLowerCase());
+    const matchEspecialidade = !filterEspecialidade ||
+      c.doutor.especialidade?.id === filterEspecialidade;
+    return matchBusca && matchEspecialidade;
+  });
 
   const totalPaginas = Math.ceil(filtrados.length / itensPorPagina);
   const inicio = (pagina - 1) * itensPorPagina;
@@ -105,21 +114,21 @@ export default function ConsultasPage() {
       name: "doutorId",
       label: "Doutor",
       required: true,
-      options: doutores.map((d) => ({ value: d.id, label: d.nome })),
+      options: doutores.map((d) => ({ value: d.id, label: `${d.nome}${d.especialidade ? ` (${d.especialidade.nome})` : ""}` })),
     },
     { name: "data", label: "Data", type: "date", required: true },
-    { name: "horario", label: "Horário", required: true, placeholder: "09:00" },
+    { name: "horario", label: "Horario", required: true, placeholder: "09:00" },
     {
       name: "status",
       label: "Status",
       options: [
         { value: "agendada", label: "Agendada" },
         { value: "em_andamento", label: "Em Andamento" },
-        { value: "concluida", label: "Concluída" },
+        { value: "concluida", label: "Concluida" },
         { value: "cancelada", label: "Cancelada" },
       ],
     },
-    { name: "descricao", label: "Descrição", placeholder: "Descrição da consulta" },
+    { name: "descricao", label: "Descricao", placeholder: "Descricao da consulta" },
     { name: "valor", label: "Valor (R$)", type: "number", placeholder: "0.00" },
   ];
 
@@ -130,10 +139,12 @@ export default function ConsultasPage() {
   const handleCreate = async () => {
     setSaving(true);
     try {
+      const body = { ...formValues };
+      if (body.valor === "" || body.valor === undefined) body.valor = "0";
       const res = await fetch(`${API_BASE}/consultas`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify(formValues),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.success) {
@@ -173,7 +184,6 @@ export default function ConsultasPage() {
     <>
       <NavBar />
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
-        {/* Header */}
         <div className="bg-gradient-to-r from-[#00a884] via-[#00c9a0] to-[#00d4a7] text-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <h1 className="text-2xl sm:text-3xl font-bold">Consultas</h1>
@@ -209,17 +219,29 @@ export default function ConsultasPage() {
 
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden animate-slide-up">
             <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="relative flex-1 max-w-sm">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Buscar por paciente ou doutor..."
-                value={busca}
-                onChange={(e) => { setBusca(e.target.value); setPagina(1); }}
-                className="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#00a884] focus:ring-1 focus:ring-[#00a884] outline-none transition-colors placeholder:text-gray-400"
-              />
+            <div className="flex items-center gap-3 flex-1">
+              <div className="relative flex-1 max-w-sm">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Buscar por paciente ou doutor..."
+                  value={busca}
+                  onChange={(e) => { setBusca(e.target.value); setPagina(1); }}
+                  className="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#00a884] focus:ring-1 focus:ring-[#00a884] outline-none transition-colors placeholder:text-gray-400"
+                />
+              </div>
+              <select
+                value={filterEspecialidade}
+                onChange={(e) => { setFilterEspecialidade(e.target.value); setPagina(1); }}
+                className="px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#00a884] focus:ring-1 focus:ring-[#00a884] outline-none transition-colors"
+              >
+                <option value="">Todas especialidades</option>
+                {especialidades.map((e) => (
+                  <option key={e.id} value={e.id}>{e.nome}</option>
+                ))}
+              </select>
             </div>
             <Button variant="default" className="bg-[#00a884] hover:bg-[#00a884]/90 text-white" onClick={() => { setFormValues({ status: "agendada" }); setModalOpen(true); }}>
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
@@ -243,12 +265,12 @@ export default function ConsultasPage() {
                   <TableHeader>
                     <TableRow className="bg-gray-50/50 hover:bg-gray-50/50">
                       <TableHead className="text-gray-500 font-semibold">Data</TableHead>
-                      <TableHead className="text-gray-500 font-semibold">Horário</TableHead>
+                      <TableHead className="text-gray-500 font-semibold">Horario</TableHead>
                       <TableHead className="text-gray-500 font-semibold">Paciente</TableHead>
                       <TableHead className="text-gray-500 font-semibold">Doutor</TableHead>
                       <TableHead className="text-gray-500 font-semibold">Status</TableHead>
                       <TableHead className="text-gray-500 font-semibold">Valor</TableHead>
-                      <TableHead className="text-right text-gray-500 font-semibold">Ações</TableHead>
+                      <TableHead className="text-right text-gray-500 font-semibold">Acoes</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -269,7 +291,7 @@ export default function ConsultasPage() {
                           <TableCell>
                             <span className="text-gray-700">{c.doutor.nome}</span>
                             {c.doutor.especialidade && (
-                              <p className="text-xs text-gray-400">{c.doutor.especialidade}</p>
+                              <p className="text-xs text-gray-400">{c.doutor.especialidade.nome}</p>
                             )}
                           </TableCell>
                           <TableCell>
@@ -278,7 +300,7 @@ export default function ConsultasPage() {
                             </span>
                           </TableCell>
                           <TableCell className="text-gray-700">
-                            {c.valor ? `R$ ${c.valor.toFixed(2)}` : "-"}
+                            {c.valor != null ? `R$ ${c.valor.toFixed(2)}` : "R$ 0,00"}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -308,11 +330,11 @@ export default function ConsultasPage() {
                           </span>
                         </div>
                         <p className="text-sm text-gray-500">{c.doutor.nome}</p>
-                        <p className="text-xs text-gray-400 mt-1">{formatDate(c.data)} às {c.horario}</p>
+                        <p className="text-xs text-gray-400 mt-1">{formatDate(c.data)} as {c.horario}</p>
                       </div>
-                      {c.valor && (
-                        <span className="text-sm font-medium text-gray-700">R$ {c.valor.toFixed(2)}</span>
-                      )}
+                      <span className="text-sm font-medium text-gray-700">
+                        {c.valor != null ? `R$ ${c.valor.toFixed(2)}` : "R$ 0,00"}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -340,7 +362,7 @@ export default function ConsultasPage() {
                   ))}
                 </div>
                 <Button variant="outline" size="sm" disabled={pagina === totalPaginas || totalPaginas === 0} onClick={() => setPagina(pagina + 1)} className="border-gray-200">
-                  Próxima
+                  Proxima
                 </Button>
               </div>
             </div>

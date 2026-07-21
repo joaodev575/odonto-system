@@ -16,6 +16,7 @@ import pacienteRoutes from "./routes/pacientes";
 import doutorRoutes from "./routes/doutores";
 import consultaRoutes from "./routes/consultas";
 import adminRoutes from "./routes/admin";
+import especialidadeRoutes from "./routes/especialidades";
 import { auth } from "./middleware/auth";
 import { rateLimitLogin, requestLogger, sanitizeInput } from "./middleware/security";
 
@@ -68,6 +69,7 @@ app.get("/", (_req, res) => {
 app.use(pacienteRoutes);
 app.use(doutorRoutes);
 app.use(consultaRoutes);
+app.use(especialidadeRoutes);
 app.use(adminRoutes);
 
 // 404 handler

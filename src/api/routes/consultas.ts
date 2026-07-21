@@ -4,13 +4,42 @@ import { validateStatus, validateHorario, validateDate, validateMaxLen } from ".
 
 const router = express.Router();
 
+const ANAMNESE_FIELDS = [
+  "queixaPrincipal", "historiaDoenca", "alergias", "medicamentos",
+  "cirurgias", "historicoFamiliar", "observacoes",
+];
+
 // Listar todas as consultas
-router.get("/consultas", async (_req, res) => {
+router.get("/consultas", async (req, res) => {
   try {
+    const { especialidadeId, doutorId, status, dataInicio, dataFim } = req.query;
+    const where: Record<string, unknown> = {};
+
+    if (especialidadeId) {
+      where.doutor = { especialidadeId: especialidadeId as string };
+    }
+    if (doutorId) {
+      where.doutorId = doutorId as string;
+    }
+    if (status) {
+      where.status = status as string;
+    }
+    if (dataInicio || dataFim) {
+      where.data = {};
+      if (dataInicio) (where.data as Record<string, unknown>).gte = new Date(dataInicio as string);
+      if (dataFim) (where.data as Record<string, unknown>).lte = new Date(dataFim as string);
+    }
+
     const consultas = await prisma.consulta.findMany({
+      where,
       include: {
-        paciente: { select: { id: true, nome: true, email: true } },
-        doutor: { select: { id: true, nome: true, especialidade: true } },
+        paciente: { select: { id: true, nome: true, email: true, cpf: true, telefone: true } },
+        doutor: {
+          select: {
+            id: true, nome: true, codigoConselho: true,
+            especialidade: { select: { id: true, nome: true } },
+          },
+        },
       },
       orderBy: { data: "desc" },
     });
@@ -28,8 +57,13 @@ router.get("/consultas/:id", async (req, res) => {
     const consulta = await prisma.consulta.findUnique({
       where: { id },
       include: {
-        paciente: { select: { id: true, nome: true, email: true, telefone: true } },
-        doutor: { select: { id: true, nome: true, especialidade: true, crm: true } },
+        paciente: { select: { id: true, nome: true, email: true, telefone: true, cpf: true, necessidadesEspeciais: true } },
+        doutor: {
+          select: {
+            id: true, nome: true, codigoConselho: true, cpf: true,
+            especialidade: { select: { id: true, nome: true } },
+          },
+        },
       },
     });
     if (!consulta) {
@@ -46,7 +80,7 @@ router.get("/consultas/:id", async (req, res) => {
 // Criar nova consulta
 router.post("/consultas", async (req, res) => {
   try {
-    const { pacienteId, doutorId, data, horario, status, descricao, valor } = req.body;
+    const { pacienteId, doutorId, data, horario, status, descricao, valor, ...anamnese } = req.body;
 
     if (!pacienteId || !doutorId || !data || !horario) {
       res.status(400).json({ success: false, message: "Paciente, doutor, data e horario sao obrigatorios." });
@@ -78,15 +112,6 @@ router.post("/consultas", async (req, res) => {
       if (err) { res.status(400).json({ success: false, message: err }); return; }
     }
 
-    if (valor !== undefined && valor !== null) {
-      const numValor = parseFloat(valor);
-      if (isNaN(numValor) || numValor < 0 || numValor > 999999) {
-        res.status(400).json({ success: false, message: "Valor invalido." });
-        return;
-      }
-    }
-
-    // Verify foreign keys exist
     const [pacienteExists, doutorExists] = await Promise.all([
       prisma.paciente.findUnique({ where: { id: pacienteId }, select: { id: true } }),
       prisma.doutor.findUnique({ where: { id: doutorId }, select: { id: true } }),
@@ -101,6 +126,13 @@ router.post("/consultas", async (req, res) => {
       return;
     }
 
+    const anamneseData: Record<string, string | null> = {};
+    for (const field of ANAMNESE_FIELDS) {
+      if (anamnese[field] !== undefined) {
+        anamneseData[field] = anamnese[field] || null;
+      }
+    }
+
     const consulta = await prisma.consulta.create({
       data: {
         pacienteId,
@@ -109,7 +141,8 @@ router.post("/consultas", async (req, res) => {
         horario,
         status: status || "agendada",
         descricao: descricao || null,
-        valor: valor ? parseFloat(valor) : null,
+        valor: valor !== undefined && valor !== null ? parseFloat(valor) : null,
+        ...anamneseData,
       },
       include: {
         paciente: { select: { id: true, nome: true } },
@@ -128,7 +161,7 @@ router.post("/consultas", async (req, res) => {
 router.put("/consultas/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { pacienteId, doutorId, data, horario, status, descricao, valor } = req.body;
+    const { pacienteId, doutorId, data, horario, status, descricao, valor, ...anamnese } = req.body;
 
     const existing = await prisma.consulta.findUnique({ where: { id } });
     if (!existing) {
@@ -169,15 +202,13 @@ router.put("/consultas/:id", async (req, res) => {
       updateData.descricao = descricao || null;
     }
     if (valor !== undefined) {
-      if (valor !== null) {
-        const numValor = parseFloat(valor);
-        if (isNaN(numValor) || numValor < 0 || numValor > 999999) {
-          res.status(400).json({ success: false, message: "Valor invalido." });
-          return;
-        }
-        updateData.valor = numValor;
-      } else {
-        updateData.valor = null;
+      updateData.valor = valor !== null && valor !== undefined ? parseFloat(valor) : null;
+    }
+
+    // Anamnese fields
+    for (const field of ANAMNESE_FIELDS) {
+      if (anamnese[field] !== undefined) {
+        updateData[field] = anamnese[field] || null;
       }
     }
 

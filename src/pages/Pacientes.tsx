@@ -14,20 +14,51 @@ interface Paciente {
   cpf?: string;
   endereco?: string;
   dataNascimento?: string;
+  necessidadesEspeciais?: string;
   createdAt: string;
 }
 
 const API_BASE = "/api";
 const itensPorPagina = 5;
 
-const campos = [
-  { name: "nome", label: "Nome", required: true, placeholder: "Nome completo" },
-  { name: "email", label: "Email", type: "email", required: true, placeholder: "email@exemplo.com" },
-  { name: "telefone", label: "Telefone", placeholder: "(11) 99999-0000" },
-  { name: "cpf", label: "CPF", placeholder: "000.000.000-00" },
-  { name: "endereco", label: "Endereço", placeholder: "Rua, número - Cidade, UF" },
-  { name: "dataNascimento", label: "Data de Nascimento", type: "date" },
-];
+function formatCPF(v: string) {
+  const nums = v.replace(/\D/g, "").slice(0, 11);
+  return nums
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+}
+
+function formatPhone(v: string) {
+  const nums = v.replace(/\D/g, "").slice(0, 11);
+  if (nums.length <= 10) {
+    return nums
+      .replace(/(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
+  }
+  return nums
+    .replace(/(\d{2})(\d)/, "($1) $2")
+    .replace(/(\d{5})(\d)/, "$1-$2");
+}
+
+function isValidCPF(cpf: string): boolean {
+  const nums = cpf.replace(/\D/g, "");
+  if (nums.length !== 11 || /^(\d)\1{10}$/.test(nums)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += parseInt(nums[i]) * (10 - i);
+  let rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(nums[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += parseInt(nums[i]) * (11 - i);
+  rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  return rev === parseInt(nums[10]);
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
 function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem("token");
@@ -51,7 +82,8 @@ export default function PacientesPage() {
     setLoading(true);
     setErro(null);
     try {
-      const res = await fetch(`${API_BASE}/pacientes`, { headers: getAuthHeaders() });
+      const params = busca ? `?busca=${encodeURIComponent(busca)}` : "";
+      const res = await fetch(`${API_BASE}/pacientes${params}`, { headers: getAuthHeaders() });
       const data = await res.json();
       if (data.success) {
         setPacientes(data.data);
@@ -63,24 +95,42 @@ export default function PacientesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [busca]);
 
   useEffect(() => { fetchPacientes(); }, [fetchPacientes]);
 
-  const filtrados = pacientes.filter((p) =>
-    p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-    p.email.toLowerCase().includes(busca.toLowerCase())
-  );
+  const campos = [
+    { name: "nome", label: "Nome", required: true, placeholder: "Nome completo" },
+    { name: "email", label: "Email", type: "email", required: true, placeholder: "email@exemplo.com" },
+    { name: "telefone", label: "Telefone", placeholder: "(11) 99999-0000" },
+    { name: "cpf", label: "CPF", placeholder: "000.000.000-00" },
+    { name: "endereco", label: "Endereco", placeholder: "Rua, numero - Cidade, UF" },
+    { name: "dataNascimento", label: "Data de Nascimento", type: "date" },
+    { name: "necessidadesEspeciais", label: "Necessidades Especiais", placeholder: "Descreva se houver" },
+  ];
 
-  const totalPaginas = Math.ceil(filtrados.length / itensPorPagina);
+  const totalPaginas = Math.ceil(pacientes.length / itensPorPagina);
   const inicio = (pagina - 1) * itensPorPagina;
-  const dadosPagina = filtrados.slice(inicio, inicio + itensPorPagina);
+  const dadosPagina = pacientes.slice(inicio, inicio + itensPorPagina);
 
   const handleFormChange = (name: string, value: string) => {
+    if (name === "cpf") {
+      value = formatCPF(value);
+    } else if (name === "telefone") {
+      value = formatPhone(value);
+    }
     setFormValues((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleCreate = async () => {
+    if (!isValidEmail(formValues.email || "")) {
+      toast("Email invalido.", "error");
+      return;
+    }
+    if (formValues.cpf && !isValidCPF(formValues.cpf)) {
+      toast("CPF invalido.", "error");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(`${API_BASE}/pacientes`, {
@@ -126,7 +176,6 @@ export default function PacientesPage() {
     <>
       <NavBar />
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
-        {/* Header */}
         <div className="bg-gradient-to-r from-[#00a884] via-[#00c9a0] to-[#00d4a7] text-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <h1 className="text-2xl sm:text-3xl font-bold">Pacientes</h1>
@@ -166,9 +215,9 @@ export default function PacientesPage() {
               </svg>
               <input
                 type="text"
-                placeholder="Buscar por nome ou email..."
+                placeholder="Buscar por nome, email ou CPF..."
                 value={busca}
-                onChange={(e) => { setBusca(e.target.value); setPagina(1); }}
+                onChange={(e) => setBusca(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#00a884] focus:ring-1 focus:ring-[#00a884] outline-none transition-colors placeholder:text-gray-400"
               />
             </div>
@@ -193,24 +242,24 @@ export default function PacientesPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-gray-50/50 hover:bg-gray-50/50">
-                      <TableHead className="w-16 text-gray-500 font-semibold">ID</TableHead>
                       <TableHead className="text-gray-500 font-semibold">Nome</TableHead>
+                      <TableHead className="text-gray-500 font-semibold">CPF</TableHead>
                       <TableHead className="text-gray-500 font-semibold">Email</TableHead>
                       <TableHead className="text-gray-500 font-semibold">Telefone</TableHead>
-                      <TableHead className="text-right text-gray-500 font-semibold">Ações</TableHead>
+                      <TableHead className="text-gray-500 font-semibold">Nec. Especiais</TableHead>
+                      <TableHead className="text-right text-gray-500 font-semibold">Acoes</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {dadosPagina.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="h-32 text-center text-gray-400">
+                        <TableCell colSpan={6} className="h-32 text-center text-gray-400">
                           Nenhum paciente encontrado
                         </TableCell>
                       </TableRow>
                     ) : (
                       dadosPagina.map((p) => (
                         <TableRow key={p.id} className="group">
-                          <TableCell className="font-mono text-xs text-gray-400">#{p.id.slice(-6)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <div className="h-9 w-9 rounded-full bg-[#00a884]/10 flex items-center justify-center text-[#00a884] font-semibold text-sm flex-shrink-0">
@@ -219,8 +268,10 @@ export default function PacientesPage() {
                               <span className="font-medium text-gray-900">{p.nome}</span>
                             </div>
                           </TableCell>
+                          <TableCell className="text-gray-500 font-mono text-xs">{p.cpf || "-"}</TableCell>
                           <TableCell className="text-gray-500">{p.email}</TableCell>
                           <TableCell className="text-gray-500">{p.telefone || "-"}</TableCell>
+                          <TableCell className="text-gray-500 text-xs max-w-[150px] truncate">{p.necessidadesEspeciais || "-"}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <Button variant="ghost" size="icon-xs" className="text-gray-400 hover:text-red-500" onClick={() => setDeleteId(p.id)}>
@@ -248,6 +299,7 @@ export default function PacientesPage() {
                         <div>
                           <p className="font-medium text-gray-900">{p.nome}</p>
                           <p className="text-sm text-gray-500">{p.email}</p>
+                          {p.cpf && <p className="text-xs text-gray-400 font-mono">{p.cpf}</p>}
                         </div>
                       </div>
                     </div>
@@ -260,9 +312,9 @@ export default function PacientesPage() {
           {!loading && !erro && (
             <div className="px-4 py-3 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3 bg-gray-50/50">
               <p className="text-sm text-gray-500">
-                Mostrando <span className="font-medium text-gray-700">{filtrados.length > 0 ? inicio + 1 : 0}</span> a{" "}
-                <span className="font-medium text-gray-700">{Math.min(inicio + itensPorPagina, filtrados.length)}</span> de{" "}
-                <span className="font-medium text-gray-700">{filtrados.length}</span>
+                Mostrando <span className="font-medium text-gray-700">{pacientes.length > 0 ? inicio + 1 : 0}</span> a{" "}
+                <span className="font-medium text-gray-700">{Math.min(inicio + itensPorPagina, pacientes.length)}</span> de{" "}
+                <span className="font-medium text-gray-700">{pacientes.length}</span>
               </p>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" disabled={pagina === 1} onClick={() => setPagina(pagina - 1)} className="border-gray-200">
@@ -277,7 +329,7 @@ export default function PacientesPage() {
                   ))}
                 </div>
                 <Button variant="outline" size="sm" disabled={pagina === totalPaginas || totalPaginas === 0} onClick={() => setPagina(pagina + 1)} className="border-gray-200">
-                  Próxima
+                  Proxima
                 </Button>
               </div>
             </div>

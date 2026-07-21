@@ -22,51 +22,72 @@ model User {
   @@index([resetToken])
 }
 
+model Especialidade {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  descricao String?
+  doutores  Doutor[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Paciente {
-  id              String    @id @default(cuid())
-  nome            String
-  email           String
-  telefone        String?
-  cpf             String?   @unique
-  endereco        String?
-  dataNascimento  DateTime?
-  consultas       Consulta[]
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                   String    @id @default(cuid())
+  nome                 String
+  email                String
+  telefone             String?
+  cpf                  String?   @unique
+  endereco             String?
+  dataNascimento       DateTime?
+  necessidadesEspeciais String?
+  consultas            Consulta[]
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@index([nome])
   @@index([email])
+  @@index([cpf])
 }
 
 model Doutor {
-  id            String    @id @default(cuid())
-  nome          String
-  email         String
-  telefone      String?
-  cpf           String?   @unique
-  crm           String?   @unique
-  especialidade String?
-  consultas     Consulta[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String        @id @default(cuid())
+  nome            String
+  email           String
+  telefone        String?
+  cpf             String?       @unique
+  codigoConselho  String?       @unique
+  especialidadeId String?
+  especialidade   Especialidade? @relation(fields: [especialidadeId], references: [id], onDelete: SetNull)
+  consultas       Consulta[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([nome])
-  @@index([especialidade])
+  @@index([especialidadeId])
+  @@index([cpf])
 }
 
 model Consulta {
-  id          String   @id @default(cuid())
-  pacienteId  String
-  doutorId    String
-  data        DateTime
-  horario     String
-  status      String   @default("agendada")
-  descricao   String?
-  valor       Float?
-  paciente    Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
-  doutor      Doutor   @relation(fields: [doutorId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String    @id @default(cuid())
+  pacienteId      String
+  doutorId        String
+  data            DateTime
+  horario         String
+  status          String    @default("agendada")
+  descricao       String?
+  valor           Float?
+  // Anamnese
+  queixaPrincipal    String?
+  historiaDoenca     String?
+  alergias           String?
+  medicamentos       String?
+  cirurgias          String?
+  historicoFamiliar  String?
+  observacoes        String?
+  paciente         Paciente  @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+  doutor           Doutor    @relation(fields: [doutorId], references: [id], onDelete: Cascade)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([pacienteId])
   @@index([doutorId])

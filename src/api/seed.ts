@@ -9,6 +9,7 @@ async function main() {
   await prisma.consulta.deleteMany();
   await prisma.paciente.deleteMany();
   await prisma.doutor.deleteMany();
+  await prisma.especialidade.deleteMany();
   await prisma.user.deleteMany();
   console.log("Dados antigos removidos");
 
@@ -24,6 +25,16 @@ async function main() {
   });
   console.log("Admin criado:", admin.username);
 
+  // Criar especialidades
+  const especialidades = await Promise.all([
+    prisma.especialidade.create({ data: { nome: "Odontologia Geral", descricao: "Consultas e preventivos" } }),
+    prisma.especialidade.create({ data: { nome: "Ortodontia", descricao: "Aparelhos e alinhadores" } }),
+    prisma.especialidade.create({ data: { nome: "Endodontia", descricao: "Tratamento de canal" } }),
+    prisma.especialidade.create({ data: { nome: "Periodontia", descricao: "Tratamento gengival" } }),
+    prisma.especialidade.create({ data: { nome: "Implantodontia", descricao: "Implantes dentarios" } }),
+  ]);
+  console.log(`${especialidades.length} especialidades criadas`);
+
   // Criar doutores
   const doutores = await Promise.all([
     prisma.doutor.create({
@@ -32,8 +43,8 @@ async function main() {
         email: "joao.pedro.santos@odonto.com",
         telefone: "(11) 99999-1001",
         cpf: "111.222.333-01",
-        crm: "CRM-10001",
-        especialidade: "Odontologia Geral",
+        codigoConselho: "CRO-10001",
+        especialidadeId: especialidades[0].id,
       },
     }),
     prisma.doutor.create({
@@ -42,8 +53,8 @@ async function main() {
         email: "joao.pedro.oliveira@odonto.com",
         telefone: "(11) 99999-1002",
         cpf: "111.222.333-02",
-        crm: "CRM-10002",
-        especialidade: "Ortodontia",
+        codigoConselho: "CRO-10002",
+        especialidadeId: especialidades[1].id,
       },
     }),
     prisma.doutor.create({
@@ -52,8 +63,8 @@ async function main() {
         email: "joao.pedro.lima@odonto.com",
         telefone: "(11) 99999-1003",
         cpf: "111.222.333-03",
-        crm: "CRM-10003",
-        especialidade: "Endodontia",
+        codigoConselho: "CRO-10003",
+        especialidadeId: especialidades[2].id,
       },
     }),
     prisma.doutor.create({
@@ -62,8 +73,8 @@ async function main() {
         email: "joao.pedro.ferreira@odonto.com",
         telefone: "(11) 99999-1004",
         cpf: "111.222.333-04",
-        crm: "CRM-10004",
-        especialidade: "Periodontia",
+        codigoConselho: "CRO-10004",
+        especialidadeId: especialidades[3].id,
       },
     }),
     prisma.doutor.create({
@@ -72,8 +83,8 @@ async function main() {
         email: "joao.pedro.costa@odonto.com",
         telefone: "(11) 99999-1005",
         cpf: "111.222.333-05",
-        crm: "CRM-10005",
-        especialidade: "Implantodontia",
+        codigoConselho: "CRO-10005",
+        especialidadeId: especialidades[4].id,
       },
     }),
   ]);
@@ -109,6 +120,7 @@ async function main() {
         cpf: "222.333.444-03",
         endereco: "Rua Oscar Freire, 789 - Sao Paulo, SP",
         dataNascimento: new Date("1978-12-10"),
+        necessidadesEspeciais: "Cadeirante - necessita de acessibilidade",
       },
     }),
     prisma.paciente.create({
@@ -147,7 +159,7 @@ async function main() {
         email: "joao.pedro.rodrigues@email.com",
         telefone: "(11) 88888-1007",
         cpf: "222.333.444-07",
-        endereco: "Rua da Consolação, 147 - Sao Paulo, SP",
+        endereco: "Rua da Consolacao, 147 - Sao Paulo, SP",
         dataNascimento: new Date("1980-01-25"),
       },
     }),
@@ -221,6 +233,9 @@ async function main() {
         status: "agendada",
         descricao: "Tratamento de canal",
         valor: 500,
+        queixaPrincipal: "Dor intensa no dente 36",
+        alergias: "Penicilina",
+        medicamentos: "Ibuprofeno 600mg",
       },
     }),
     prisma.consulta.create({

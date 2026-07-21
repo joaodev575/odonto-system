@@ -68,9 +68,6 @@ router.get("/admin/stats", async (_req, res) => {
         consultasMes,
         usuariosAtivos,
         faturamentoMes: faturamento._sum.valor || 0,
-        servidor: "Online",
-        uptime: process.uptime(),
-        memoria: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
       },
     });
   } catch (error) {
@@ -152,6 +149,13 @@ router.put("/admin/users/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { role, email } = req.body;
+
+    // Prevent admin from changing their own role
+    const currentUser = (req as any).user;
+    if (currentUser.id === id && role && role !== currentUser.role) {
+      res.status(400).json({ success: false, message: "Nao e possivel alterar seu proprio perfil." });
+      return;
+    }
 
     const updateData: Record<string, unknown> = {};
     if (role) updateData.role = role;

@@ -1,16 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import NavBar from "#components/NavBar";
-import FormModal from "../components/FormModal";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { useToast } from "../components/Toast";
 
 interface Consulta {
   id: string; data: string; horario: string; status: string; descricao?: string; valor?: number;
-  paciente: { id: string; nome: string; email: string; telefone?: string };
-  doutor: { id: string; nome: string; especialidade?: string; crm?: string };
+  queixaPrincipal?: string; historiaDoenca?: string; alergias?: string; medicamentos?: string;
+  cirurgias?: string; historicoFamiliar?: string; observacoes?: string;
+  paciente: { id: string; nome: string; email: string; telefone?: string; cpf?: string; necessidadesEspeciais?: string };
+  doutor: { id: string; nome: string; especialidade?: { id: string; nome: string } | null; codigoConselho?: string };
 }
 interface Paciente { id: string; nome: string; }
-interface Doutor { id: string; nome: string; }
+interface Doutor { id: string; nome: string; especialidade?: { id: string; nome: string } | null; }
+interface Especialidade { id: string; nome: string; }
 
 const API_BASE = "/api";
 const HORARIOS = ["08:00","08:30","09:00","09:30","10:00","10:30","11:00","11:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00"];
@@ -37,12 +39,14 @@ export default function CalendarioPage() {
   const [consultas, setConsultas] = useState<Consulta[]>([]);
   const [pacientes, setPacientes] = useState<Paciente[]>([]);
   const [doutores, setDoutores] = useState<Doutor[]>([]);
+  const [especialidades, setEspecialidades] = useState<Especialidade[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
   const [filterDoutor, setFilterDoutor] = useState<string>("");
+  const [filterEspecialidade, setFilterEspecialidade] = useState<string>("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -50,21 +54,26 @@ export default function CalendarioPage() {
   const [selectedConsulta, setSelectedConsulta] = useState<Consulta | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showAnamnese, setShowAnamnese] = useState(false);
+  const [anamneseValues, setAnamneseValues] = useState<Record<string, string>>({});
+  const [savingAnamnese, setSavingAnamnese] = useState(false);
   const { toast } = useToast();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const headers = getAuthHeaders();
-      const [cRes, pRes, dRes] = await Promise.all([
+      const [cRes, pRes, dRes, eRes] = await Promise.all([
         fetch(`${API_BASE}/consultas`, { headers }),
         fetch(`${API_BASE}/pacientes`, { headers }),
         fetch(`${API_BASE}/doutores`, { headers }),
+        fetch(`${API_BASE}/especialidades`, { headers }),
       ]);
-      const [cData, pData, dData] = await Promise.all([cRes.json(), pRes.json(), dRes.json()]);
+      const [cData, pData, dData, eData] = await Promise.all([cRes.json(), pRes.json(), dRes.json(), eRes.json()]);
       if (cData.success) setConsultas(cData.data);
       if (pData.success) setPacientes(pData.data);
       if (dData.success) setDoutores(dData.data);
+      if (eData.success) setEspecialidades(eData.data);
     } catch {} finally { setLoading(false); }
   }, []);
 
@@ -78,9 +87,11 @@ export default function CalendarioPage() {
     return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
 
-  const consultasFiltradas = filterDoutor
-    ? consultasDoMes.filter((c) => c.doutor.id === filterDoutor)
-    : consultasDoMes;
+  const consultasFiltradas = consultasDoMes.filter((c) => {
+    if (filterDoutor && c.doutor.id !== filterDoutor) return false;
+    if (filterEspecialidade && c.doutor.especialidade?.id !== filterEspecialidade) return false;
+    return true;
+  });
 
   const consultasPorDia: Record<number, Consulta[]> = {};
   consultasFiltradas.forEach((c) => {
@@ -108,10 +119,12 @@ export default function CalendarioPage() {
   const handleCreateConsulta = async () => {
     setSaving(true);
     try {
+      const body = { ...formValues };
+      if (body.valor === "" || body.valor === undefined) body.valor = "0";
       const res = await fetch(`${API_BASE}/consultas`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify(formValues),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.success) {
@@ -121,6 +134,36 @@ export default function CalendarioPage() {
         toast("Consulta agendada com sucesso!");
       } else { toast(data.message, "error"); }
     } catch { toast("Erro ao salvar", "error"); } finally { setSaving(false); }
+  };
+
+  const handleUpdateStatus = async (id: string, status: string) => {
+    try {
+      await fetch(`${API_BASE}/consultas/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ status }),
+      });
+      fetchData();
+      if (selectedConsulta?.id === id) {
+        setSelectedConsulta({ ...selectedConsulta!, status });
+      }
+      toast("Status atualizado!");
+    } catch { toast("Erro ao atualizar", "error"); }
+  };
+
+  const handleSaveAnamnese = async () => {
+    if (!selectedConsulta) return;
+    setSavingAnamnese(true);
+    try {
+      await fetch(`${API_BASE}/consultas/${selectedConsulta.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify(anamneseValues),
+      });
+      setShowAnamnese(false);
+      fetchData();
+      toast("Anamnese salva com sucesso!");
+    } catch { toast("Erro ao salvar anamnese", "error"); } finally { setSavingAnamnese(false); }
   };
 
   const handleDeleteConsulta = async () => {
@@ -135,9 +178,27 @@ export default function CalendarioPage() {
     } catch { toast("Erro ao excluir", "error"); } finally { setDeleting(false); }
   };
 
+  const openAnamnese = (c: Consulta) => {
+    setSelectedConsulta(c);
+    setAnamneseValues({
+      queixaPrincipal: c.queixaPrincipal || "",
+      historiaDoenca: c.historiaDoenca || "",
+      alergias: c.alergias || "",
+      medicamentos: c.medicamentos || "",
+      cirurgias: c.cirurgias || "",
+      historicoFamiliar: c.historicoFamiliar || "",
+      observacoes: c.observacoes || "",
+    });
+    setShowAnamnese(true);
+  };
+
+  const filteredDoutores = filterEspecialidade
+    ? doutores.filter((d) => d.especialidade?.id === filterEspecialidade)
+    : doutores;
+
   const consultaCampos = [
     { name: "pacienteId", label: "Paciente", required: true, options: pacientes.map((p) => ({ value: p.id, label: p.nome })) },
-    { name: "doutorId", label: "Doutor", required: true, options: doutores.map((d) => ({ value: d.id, label: d.nome })) },
+    { name: "doutorId", label: "Doutor", required: true, options: filteredDoutores.map((d) => ({ value: d.id, label: `${d.nome}${d.especialidade ? ` (${d.especialidade.nome})` : ""}` })) },
     { name: "horario", label: "Horario", required: true, options: HORARIOS.map((h) => ({ value: h, label: h })) },
     { name: "status", label: "Status", options: [
       { value: "agendada", label: "Agendada" }, { value: "em_andamento", label: "Em Andamento" },
@@ -197,14 +258,24 @@ export default function CalendarioPage() {
                       </svg>
                     </button>
                   </div>
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
+                    <select
+                      value={filterEspecialidade}
+                      onChange={(e) => { setFilterEspecialidade(e.target.value); setFilterDoutor(""); }}
+                      className="px-3 py-1.5 text-sm rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 outline-none transition-all"
+                    >
+                      <option value="">Todas especialidades</option>
+                      {especialidades.map((e) => (
+                        <option key={e.id} value={e.id}>{e.nome}</option>
+                      ))}
+                    </select>
                     <select
                       value={filterDoutor}
                       onChange={(e) => setFilterDoutor(e.target.value)}
                       className="px-3 py-1.5 text-sm rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 outline-none transition-all"
                     >
                       <option value="">Todos os doutores</option>
-                      {doutores.map((d) => (
+                      {filteredDoutores.map((d) => (
                         <option key={d.id} value={d.id}>{d.nome}</option>
                       ))}
                     </select>
@@ -218,13 +289,11 @@ export default function CalendarioPage() {
                 </div>
 
                 <div className="p-5">
-                  {/* Weekday headers */}
                   <div className="grid grid-cols-7 gap-1 mb-2">
                     {WEEKDAYS.map((d) => (
                       <div key={d} className="text-center text-xs font-semibold text-gray-400 py-1">{d}</div>
                     ))}
                   </div>
-                  {/* Days grid */}
                   <div className="grid grid-cols-7 gap-1">
                     {Array.from({ length: firstDayOfWeek }).map((_, i) => (
                       <div key={`empty-${i}`} />
@@ -272,7 +341,6 @@ export default function CalendarioPage() {
                   </div>
                 </div>
 
-                {/* Legend */}
                 <div className="px-5 pb-5 flex flex-wrap gap-3">
                   {Object.entries(statusColors).map(([key, color]) => (
                     <div key={key} className="flex items-center gap-1.5">
@@ -283,9 +351,8 @@ export default function CalendarioPage() {
                 </div>
               </div>
 
-              {/* Right Panel - Day Details */}
+              {/* Right Panel */}
               <div className="space-y-4">
-                {/* Selected Day Header */}
                 {selectedDay && (
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 animate-fade-in">
                     <div className="flex items-center justify-between mb-3">
@@ -336,7 +403,7 @@ export default function CalendarioPage() {
                 )}
 
                 {/* Consulta Detail */}
-                {selectedConsulta && (
+                {selectedConsulta && !showAnamnese && (
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 animate-fade-in">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-bold text-gray-900">Detalhes da Consulta</h3>
@@ -379,7 +446,7 @@ export default function CalendarioPage() {
                         <div>
                           <p className="text-xs text-gray-500">Doutor</p>
                           <p className="font-bold text-gray-900">{selectedConsulta.doutor.nome}</p>
-                          <p className="text-xs text-gray-500">{selectedConsulta.doutor.especialidade || "Geral"}</p>
+                          <p className="text-xs text-gray-500">{selectedConsulta.doutor.especialidade?.nome || "Geral"}</p>
                         </div>
                       </div>
                       {selectedConsulta.valor != null && (
@@ -401,6 +468,30 @@ export default function CalendarioPage() {
                           <p className="text-sm text-gray-700">{selectedConsulta.descricao}</p>
                         </div>
                       )}
+
+                      {/* Status change */}
+                      <div className="flex gap-2">
+                        {["agendada", "em_andamento", "concluida", "cancelada"].map((s) => (
+                          <button
+                            key={s}
+                            onClick={() => handleUpdateStatus(selectedConsulta.id, s)}
+                            className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg border transition-colors cursor-pointer ${
+                              selectedConsulta.status === s
+                                ? statusBg[s]
+                                : "border-gray-200 text-gray-400 hover:bg-gray-50"
+                            }`}
+                          >
+                            {s.replace("_", " ")}
+                          </button>
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => openAnamnese(selectedConsulta)}
+                        className="w-full py-2.5 text-sm font-medium text-[#00a884] bg-[#00a884]/10 hover:bg-[#00a884]/20 rounded-xl transition-colors cursor-pointer"
+                      >
+                        Anamnese do Paciente
+                      </button>
                       <button
                         onClick={() => setDeleteId(selectedConsulta.id)}
                         className="w-full py-2.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors cursor-pointer"
@@ -411,7 +502,50 @@ export default function CalendarioPage() {
                   </div>
                 )}
 
-                {/* Time Slots for selected day */}
+                {/* Anamnese Panel */}
+                {showAnamnese && selectedConsulta && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 animate-fade-in">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-gray-900">Anamnese</h3>
+                      <button onClick={() => setShowAnamnese(false)} className="h-7 w-7 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 cursor-pointer">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-3">{selectedConsulta.paciente.nome}</p>
+                    <div className="space-y-3">
+                      {[
+                        { key: "queixaPrincipal", label: "Queixa Principal" },
+                        { key: "historiaDoenca", label: "Historia da Doenca" },
+                        { key: "alergias", label: "Alergias" },
+                        { key: "medicamentos", label: "Medicamentos" },
+                        { key: "cirurgias", label: "Cirurgias Anteriores" },
+                        { key: "historicoFamiliar", label: "Historico Familiar" },
+                        { key: "observacoes", label: "Observacoes" },
+                      ].map((field) => (
+                        <div key={field.key}>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">{field.label}</label>
+                          <textarea
+                            value={anamneseValues[field.key] || ""}
+                            onChange={(e) => setAnamneseValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                            rows={2}
+                            className="w-full px-3 py-2 text-sm rounded-xl border border-gray-200 bg-gray-50/50 focus:bg-white focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 outline-none transition-all resize-none"
+                          />
+                        </div>
+                      ))}
+                      <button
+                        onClick={handleSaveAnamnese}
+                        disabled={savingAnamnese}
+                        className="w-full py-2.5 text-sm font-medium text-white bg-gradient-to-r from-[#00a884] to-[#00c9a0] hover:from-[#009a78] hover:to-[#00b894] rounded-xl transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        {savingAnamnese ? "Salvando..." : "Salvar Anamnese"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Time Slots */}
                 {selectedDay && consultasDoDia.length > 0 && (
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden animate-slide-up">
                     <div className="p-4 border-b border-gray-100">
@@ -444,16 +578,64 @@ export default function CalendarioPage() {
         </div>
       </div>
 
-      <FormModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Nova Consulta"
-        fields={consultaCampos}
-        values={formValues}
-        onChange={handleFormChange}
-        onSubmit={handleCreateConsulta}
-        loading={saving}
-      />
+      {/* Create Consulta Modal */}
+      {modalOpen && (
+        <dialog
+          open
+          onClose={() => setModalOpen(false)}
+          className="modal-center backdrop:bg-black/50 backdrop:backdrop-blur-sm rounded-2xl border border-gray-200/80 shadow-2xl p-0 w-full max-w-md"
+        >
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-bold text-gray-900">Nova Consulta</h2>
+              <button onClick={() => setModalOpen(false)} className="h-8 w-8 rounded-xl flex items-center justify-center text-gray-400 hover:bg-gray-100 cursor-pointer">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+              {consultaCampos.map((field) => (
+                <div key={field.name}>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                    {field.label}
+                    {field.required && <span className="text-red-500 ml-0.5">*</span>}
+                  </label>
+                  {field.options ? (
+                    <select
+                      value={formValues[field.name] || ""}
+                      onChange={(e) => handleFormChange(field.name, e.target.value)}
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50/50 focus:bg-white focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 outline-none transition-all"
+                    >
+                      <option value="">Selecione...</option>
+                      {field.options.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={field.type || "text"}
+                      value={formValues[field.name] || ""}
+                      onChange={(e) => handleFormChange(field.name, e.target.value)}
+                      placeholder={field.placeholder}
+                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-gray-200 bg-gray-50/50 focus:bg-white focus:border-[#00a884] focus:ring-2 focus:ring-[#00a884]/20 outline-none transition-all placeholder:text-gray-400"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2.5 mt-6 pt-4 border-t border-gray-100">
+              <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors cursor-pointer">
+                Cancelar
+              </button>
+              <button onClick={handleCreateConsulta} disabled={saving} className="px-5 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-[#00a884] to-[#00c9a0] hover:from-[#009a78] hover:to-[#00b894] rounded-xl transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-[#00a884]/20">
+                {saving ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </div>
+        </dialog>
+      )}
+
       <ConfirmDialog
         isOpen={!!deleteId}
         onClose={() => setDeleteId(null)}
